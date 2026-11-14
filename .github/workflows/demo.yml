@@ -1,0 +1,21 @@
+name: Spoken dispute demo
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  call-to-case:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -v
+      - run: docker build -t dispute-desk .
+      - run: docker run -d --name agent -p 127.0.0.1:8765:8765 dispute-desk
+      - name: Replay audio against the live agent
+        run: |
+          curl -fsS --retry 10 --retry-connrefused http://127.0.0.1:8765/ > /dev/null
+          python3 replay.py --out run
+      - uses: actions/upload-artifact@v4
+        with:
+          name: confirmed-dispute
+          path: run/

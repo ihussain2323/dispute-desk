@@ -1,0 +1,5 @@
+__pycache__/
+*.sqlite*
+models/
+run/
+.DS_Store

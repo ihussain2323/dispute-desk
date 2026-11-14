@@ -1,0 +1,31 @@
+{
+  "case_id": "DSP-4F789DBE455C",
+  "call_id": "2a25cc8a359147abb20a7f7a7edbea90",
+  "status": "awaiting_review",
+  "transaction": {
+    "id": "T103",
+    "merchant": "North Star Coffee",
+    "cents": 675,
+    "date": "2026-05-15"
+  },
+  "currency": "USD",
+  "reason": "duplicate charge",
+  "opening_prompt": "Welcome to Dispute Desk. Which payment would you like to dispute? You can say the merchant's name.",
+  "transcript": [
+    {
+      "turn": 1,
+      "caller": "The charge at North Star Coffee.",
+      "agent": "I found North Star Coffee, $6.75 on 2026-05-15. What happened with this payment?"
+    },
+    {
+      "turn": 2,
+      "caller": "There is a duplicate charge on my statement.",
+      "agent": "Please check these details. North Star Coffee, $6.75, on 2026-05-15. The reason is duplicate charge. Say confirm to open a case, or start over to correct it."
+    },
+    {
+      "turn": 3,
+      "caller": "Confirm.",
+      "agent": "Your dispute case is open. Your reference is DSP-4F789DBE455C. A reviewer can now inspect the case."
+    }
+  ]
+}
