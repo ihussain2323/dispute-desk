@@ -1,6 +1,6 @@
 {
-  "case_id": "DSP-4F789DBE455C",
-  "call_id": "2a25cc8a359147abb20a7f7a7edbea90",
+  "case_id": "DSP-02740C92F5B7",
+  "call_id": "2373eaf35ccd486cbbbd0f682ee7e4b3",
   "status": "awaiting_review",
   "transaction": {
     "id": "T103",
@@ -10,22 +10,22 @@
   },
   "currency": "USD",
   "reason": "duplicate charge",
-  "opening_prompt": "Welcome to Dispute Desk. Which payment would you like to dispute? You can say the merchant's name.",
+  "opening_prompt": "Hi, I can help with a payment dispute. Which merchant was the charge from?",
   "transcript": [
     {
       "turn": 1,
-      "caller": "The charge at North Star Coffee.",
-      "agent": "I found North Star Coffee, $6.75 on 2026-05-15. What happened with this payment?"
+      "caller": "The charge at North Star Coffee",
+      "agent": "I found a charge for 6 dollars and 75 cents at North Star Coffee on May 15, 2026. What happened?"
     },
     {
       "turn": 2,
       "caller": "There is a duplicate charge on my statement.",
-      "agent": "Please check these details. North Star Coffee, $6.75, on 2026-05-15. The reason is duplicate charge. Say confirm to open a case, or start over to correct it."
+      "agent": "Let me read that back. You're disputing 6 dollars and 75 cents at North Star Coffee on May 15, 2026. The reason is duplicate charge. Say confirm to open the case, or start over to change it."
     },
     {
       "turn": 3,
-      "caller": "Confirm.",
-      "agent": "Your dispute case is open. Your reference is DSP-4F789DBE455C. A reviewer can now inspect the case."
+      "caller": "Confirm",
+      "agent": "Your case is open. You can see the reference and the call details in your case record."
     }
   ]
 }

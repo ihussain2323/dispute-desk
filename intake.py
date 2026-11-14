@@ -3,6 +3,7 @@ import json
 import re
 import sqlite3
 import uuid
+from datetime import date
 from contextlib import contextmanager
 
 TRANSACTIONS = [
@@ -15,7 +16,7 @@ REASONS = {
     "unrecognized charge": ("do not recognize","don't recognize","did not make","didn't make","unauthorized","unrecognized","not my purchase"),
     "goods not received": ("never arrived","never received","did not arrive","didn't arrive","not received"),
 }
-OPENING = "Welcome to Dispute Desk. Which payment would you like to dispute? You can say the merchant's name."
+OPENING = "Hi, I can help with a payment dispute. Which merchant was the charge from?"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS calls(id TEXT PRIMARY KEY, state TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS turns(call_id TEXT, seq INTEGER, request_id TEXT, transcript TEXT, reply TEXT,
@@ -47,8 +48,13 @@ def start(path):
     return dict(call_id=call_id, prompt=OPENING, **state)
 
 
-def amount(cents):
-    return f"${cents//100}.{cents%100:02d}"
+def describe_payment(item):
+    day = date.fromisoformat(item["date"])
+    dollars, cents = divmod(item["cents"], 100)
+    amount = f"{dollars} dollars"
+    if cents:
+        amount += f" and {cents} cents"
+    return f"{amount} at {item['merchant']} on {day:%B} {day.day}, {day.year}"
 
 
 def transition(state, text):
@@ -63,21 +69,21 @@ def transition(state, text):
             return "Please choose one merchant: Harbor Books, Maple Market, or North Star Coffee."
         item = matches[0]
         state.update(stage="reason",transaction=item["id"])
-        return f"I found {item['merchant']}, {amount(item['cents'])} on {item['date']}. What happened with this payment?"
+        return f"I found a charge for {describe_payment(item)}. What happened?"
     item = next(t for t in TRANSACTIONS if t["id"] == state["transaction"])
     if state["stage"] == "reason":
         matches = [label for label, phrases in REASONS.items() if any(p in words for p in phrases)]
         if len(matches) != 1 or words.startswith(("not a duplicate","i was not charged","i wasn't charged")):
             return "Please describe one issue: a duplicate charge, an unrecognized charge, or goods that never arrived."
         state.update(stage="confirm", reason=matches[0])
-        return (f"Please check these details. {item['merchant']}, {amount(item['cents'])}, on {item['date']}. "
-                f"The reason is {matches[0]}. Say confirm to open a case, or start over to correct it.")
+        return (f"Let me read that back. You're disputing {describe_payment(item)}. "
+                f"The reason is {matches[0]}. Say confirm to open the case, or start over to change it.")
     if words in ("start over","no","no start over","change the payment","change the reason"):
         state.update(stage="payment",transaction=None,reason=None)
         return "Let's correct the details. Which merchant was the payment with?"
     if words in ("confirm","yes confirm","i confirm","confirm the dispute","yes please open the case"):
         state.update(stage="opened",case_id="DSP-"+uuid.uuid4().hex[:12].upper())
-        return f"Your dispute case is open. Your reference is {state['case_id']}. A reviewer can now inspect the case."
+        return "Your case is open. You can see the reference and the call details in your case record."
     return "I need explicit confirmation. Say confirm, start over, or cancel."
 
 

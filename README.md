@@ -1,39 +1,45 @@
 # Dispute Desk
 
-A voice agent that takes a disputed payment from a spoken call to a reviewable case. It listens with local Whisper, looks up a charge on a synthetic statement, asks what happened, reads back the details, and waits for explicit confirmation. The caller gets a reference. The reviewer gets the matched transaction, dispute reason, and turn-by-turn transcript in one JSON record.
+A caller can dispute a payment by voice, check the readback, and open a reviewable case. The agent looks up the original transaction on a synthetic statement and asks for explicit confirmation before it writes a case.
 
-**[Hear the complete demo](demo/call.wav) · [Inspect the case it created](demo/case.json)**
+**[Listen to the neural voice demo](demo/call.wav) · [Read the case from that call](demo/case.json)**
 
-In the recorded call, the caller reports a duplicate charge at North Star Coffee. The agent matches transaction T103 for $6.75, reads the merchant, amount, date and reason back, and opens the case after hearing “Confirm.” Replaying that final request returns the original case ID.
+Two Supertonic 3 speakers perform the recorded call. The caller reports a duplicate charge at North Star Coffee. The agent reads back the date, reason, and amount of $6.75. The caller confirms, and the case becomes available for review. Repeating the confirmation request returns the same case ID.
 
 ## Make a call
 
-With Docker installed, run these commands from the repository root. The first build compiles the pinned whisper.cpp release and downloads a checksum-verified English model (about 75 MiB).
+Run from the repository root. The first build fetches about 616 MB of checksum-verified model archives. The resulting container performs speech recognition and synthesis locally on CPU.
 
 ```sh
 docker build -t dispute-desk .
 docker run --rm -p 127.0.0.1:8765:8765 -v dispute-cases:/data dispute-desk
 ```
 
-Open [localhost:8765](http://localhost:8765). Start a call, allow microphone access, then use **Record reply** and **Stop and send** for each turn. Try “The charge at North Star Coffee,” then “There is a duplicate charge on my statement.” At readback, say “confirm,” “start over,” or “cancel.” Use **Open case record** for the resulting JSON. The volume preserves cases across restarts.
+Open [localhost:8765](http://localhost:8765). Start a call, allow microphone access, and use **Record reply** and **Stop and send** for each turn. Try “The charge at North Star Coffee,” then “There is a duplicate charge on my statement.” At readback, say “confirm,” “start over,” or “cancel.” Select **Open case record** to inspect the result.
 
-## Reproduce the demo without a microphone
+## Speech and application stack
 
-With the server running, use Python 3.10+ in a second terminal.
+| Layer | Implementation |
+| --- | --- |
+| Microphone | An AudioWorklet captures the caller on the browser audio thread and supplies 16 kHz PCM to the turn endpoint. |
+| Recognition | NVIDIA Parakeet TDT 0.6B v3 transcribes each completed turn. |
+| Voice | Supertonic 3 speaks the agent's replies. The demo uses speaker 5 for the agent and speaker 1 for the caller. Set the container environment variable `AGENT_SPEAKER` from 0 to 9 to audition another preset. |
+| Serving | FastAPI and Uvicorn serve the UI, turn API, and case records. Sherpa-ONNX keeps both models in memory across turns. Interactive API docs are available at `/docs`. |
+| Case writes | A deterministic policy asks for a single merchant, a supported dispute reason, and confirmation. A SQLite transaction records the final turn and case together. Sequence numbers and idempotency keys protect retries. |
+
+The workflow supports duplicate charges, unrecognized charges, and goods never received. This is turn-based intake for one synthetic cardholder. Live bank submission, caller identity verification, and telephone-network routing are outside the demo.
+
+Model credits and usage terms are in the [NVIDIA Parakeet model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) and [Supertone Supertonic 3 model card](https://huggingface.co/Supertone/supertonic-3). The downloader verifies the ONNX exports distributed by [Sherpa-ONNX](https://github.com/k2-fsa/sherpa-onnx).
+
+## Replay the demo
+
+With the agent running, use Python 3.10+ in a second terminal.
 
 ```sh
 python3 replay.py --out run
 python3 -m unittest discover -s tests -v
 ```
 
-The replay uploads three prerecorded synthetic WAVs through the browser's HTTP API. It fetches the synthesized agent prompts, checks the recognized merchant, amount, and reason, retries confirmation, and writes the actual call audio and persisted case to `run/`. Case IDs vary. The GitHub Actions workflow runs the same exercise against a fresh container.
+The replay sends three neural caller recordings to the same API as the browser, retrieves the synthesized replies, verifies the persisted case and retries the confirmation. It saves the actual audio and case to `run/`. The workflow repeats this test against a fresh container on GitHub.
 
-## How intake works
-
-The browser records mono audio and resamples each turn to 16 kHz PCM. Whisper tiny.en produces the transcript. A deterministic dialogue policy matches one merchant on the sample statement, then classifies three supported reasons: duplicate, unrecognized, or goods never received. Ambiguous or out-of-scope turns prompt a retry. Flite renders each reply locally. A single SQLite transaction records the confirmed turn and the case. Sequence numbers reject stale turns and a per-call idempotency key protects against a repeated confirmation request.
-
-The three charges belong to one synthetic caller. This prototype runs as a local browser call. Identity verification, telephone-network routing and bank dispute submission are outside the demo. The database retains transcripts and case records. Production cardholder information should stay out of this demo.
-
-## Native execution
-
-Set `WHISPER_CLI` to a built [whisper.cpp v1.8.2](https://github.com/ggml-org/whisper.cpp/tree/v1.8.2) CLI, `WHISPER_MODEL` to the matching GGML tiny.en model, and `FLITE` to a [Flite](https://github.com/festvox/flite) executable with the RMS voice. Run `python3 server.py`. The server binds to loopback by default. The caller fixtures were synthesized with the SLT voice from Flite 2.2. Their source sentences are in [the fixture script](fixtures/script.json).
+For native execution, use Python 3.13, install `requirements.txt` into a virtual environment, run `sh fetch-models.sh`, then `python server.py`. Set `MODEL_DIR` if the extracted models are stored elsewhere.

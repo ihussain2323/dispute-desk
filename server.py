@@ -1,122 +1,97 @@
-"""Local HTTP interface for a turn-based voice dispute agent."""
+"""Serve local voice intake and its browser client with FastAPI."""
 import argparse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from contextlib import asynccontextmanager
 import json
 import os
 from pathlib import Path
-import re
-import subprocess
-import tempfile
 from urllib.parse import urlsplit
 import wave
 
-from audio import transcribe
-from intake import Conflict, advance, case, connection, initialize, start
+from fastapi import FastAPI, Header, Request
+from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
+import uvicorn
 
-ROOT = Path(__file__).resolve().parent
+from audio import SpeechEngine
+from intake import OPENING, Conflict, advance, case, connection, initialize, start
+
+STATIC = Path(__file__).resolve().parent / "static"
 MAX_UPLOAD = 1_000_000
 
 
-class Handler(BaseHTTPRequestHandler):
-    def send(self, status, data, mime):
-        self.send_response(status)
-        self.send_header("Content-Type", mime)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control","no-store")
-        self.send_header("X-Content-Type-Options","nosniff")
-        self.end_headers()
-        self.wfile.write(data)
+def create_app(db, models, voice):
+    @asynccontextmanager
+    async def lifespan(app):
+        initialize(db)
+        app.state.speech = SpeechEngine(models, voice)
+        yield
 
-    def respond(self, status, obj):
-        self.send(status, json.dumps(obj).encode(), "application/json")
+    app = FastAPI(title="Dispute Desk", lifespan=lifespan)
 
-    def do_GET(self):
-        path = self.path
-        pages = {"/":("index.html","text/html; charset=utf-8"),"/app.js":("app.js","text/javascript"),
-                 "/style.css":("style.css","text/css")}
-        if path in pages:
-            filename, mime = pages[path]
-            self.send(200,(ROOT/"static"/filename).read_bytes(),mime)
-            return
-        match = re.fullmatch(r"/cases/(DSP-[A-F0-9]{12})", path)
-        if match:
-            try:
-                self.respond(200,case(self.server.db,match[1]))
-            except KeyError:
-                self.respond(404,{"error":"Case not found"})
-            return
-        match = re.fullmatch(r"/calls/([a-f0-9]{32})/speech/(\d{1,5})", path)
-        if match:
-            with connection(self.server.db) as db:
-                if int(match[2]) == 0:
-                    from intake import OPENING
-                    row = db.execute("SELECT ? FROM calls WHERE id=?", (OPENING,match[1])).fetchone()
-                else:
-                    row = db.execute("SELECT reply FROM turns WHERE call_id=? AND seq=?", (match[1],int(match[2]))).fetchone()
-            if not row:
-                self.respond(404,{"error":"Prompt not found"})
-                return
-            prompt = row[0] if int(match[2]) == 0 else json.loads(row[0])["prompt"]
-            try:
-                with tempfile.TemporaryDirectory() as folder:
-                    output = Path(folder)/"reply.wav"
-                    subprocess.run([self.server.flite,"-voice","rms","-t",prompt,"-o",str(output)],
-                                   check=True,capture_output=True,timeout=20)
-                    self.send(200,output.read_bytes(),"audio/wav")
-            except (OSError,subprocess.SubprocessError):
-                self.respond(503,{"error":"Speech synthesis unavailable"})
-            return
-        self.respond(404,{"error":"Not found"})
+    @app.middleware("http")
+    async def local_requests(request, call_next):
+        origin = request.headers.get("origin")
+        if request.method == "POST" and origin and urlsplit(origin).netloc != request.headers.get("host"):
+            return JSONResponse({"error": "Cross-origin writes are disabled"}, status_code=403)
+        response = await call_next(request)
+        response.headers.update({"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+        return response
 
-    def do_POST(self):
-        origin = self.headers.get("Origin")
-        if origin and urlsplit(origin).netloc != self.headers.get("Host"):
-            self.respond(403,{"error":"Cross-origin writes are disabled"})
-            return
-        if self.path == "/calls":
-            self.respond(201,start(self.server.db))
-            return
-        match = re.fullmatch(r"/calls/([a-f0-9]{32})/turns",self.path)
-        if not match:
-            self.respond(404,{"error":"Unknown path"})
-            return
+    @app.exception_handler(KeyError)
+    async def missing(request, exc):
+        return JSONResponse({"error": str(exc.args[0])}, status_code=404)
+
+    @app.exception_handler(Conflict)
+    async def conflict(request, exc):
+        return JSONResponse({"error": str(exc)}, status_code=409)
+
+    @app.post("/calls", status_code=201)
+    def begin():
+        return start(db)
+
+    @app.get("/cases/{case_id}")
+    def read_case(case_id: str):
+        return case(db, case_id)
+
+    @app.get("/calls/{call_id}/speech/{seq}")
+    def say(call_id: str, seq: int):
+        with connection(db) as conn:
+            if seq == 0:
+                row = conn.execute("SELECT ? FROM calls WHERE id=?", (OPENING, call_id)).fetchone()
+            else:
+                row = conn.execute("SELECT reply FROM turns WHERE call_id=? AND seq=?", (call_id, seq)).fetchone()
+        if not row:
+            raise KeyError("Prompt not found")
+        prompt = row[0] if seq == 0 else json.loads(row[0])["prompt"]
+        return Response(app.state.speech.synthesize(prompt), media_type="audio/wav")
+
+    @app.post("/calls/{call_id}/turns")
+    async def turn(call_id: str, request: Request,
+                   x_sequence: int = Header(ge=0),
+                   idempotency_key: str = Header(pattern=r"^[a-zA-Z0-9_-]{1,64}$")):
+        if request.headers.get("content-type", "").split(";")[0] != "audio/wav":
+            return JSONResponse({"error": "Send a WAV audio turn"}, status_code=415)
+        data = bytearray()
+        async for chunk in request.stream():
+            if len(data) + len(chunk) > MAX_UPLOAD:
+                return JSONResponse({"error": "Recording is too long"}, status_code=413)
+            data.extend(chunk)
         try:
-            if self.headers.get_content_type()!="audio/wav":
-                raise ValueError("Send a WAV audio turn")
-            length = int(self.headers.get("Content-Length",0))
-            if not 44 <= length <= MAX_UPLOAD:
-                raise ValueError("Recording exceeds size limits or is empty")
-            seq = int(self.headers.get("X-Sequence",""))
-            key = self.headers.get("Idempotency-Key","")
-            if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}",key):
-                raise ValueError("Supply a valid turn ID")
-            data = self.rfile.read(length)
-            words = transcribe(data,self.server.cli,self.server.model)
-            self.respond(200,advance(self.server.db,match[1],seq,key,words))
-        except Conflict as exc:
-            self.respond(409,{"error":str(exc)})
-        except (ValueError,EOFError,wave.Error) as exc:
-            self.respond(422,{"error":str(exc)})
-        except KeyError:
-            self.respond(404,{"error":"Unknown call"})
-        except (OSError,subprocess.SubprocessError):
-            self.respond(503,{"error":"Recognition unavailable. Check the configured CLI and model."})
+            text = await run_in_threadpool(app.state.speech.transcribe, data)
+        except (ValueError, EOFError, wave.Error) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        return await run_in_threadpool(advance, db, call_id, x_sequence, idempotency_key, text)
 
-
-def make_server(port, db, cli, model, flite, bind="127.0.0.1"):
-    initialize(db)
-    server = ThreadingHTTPServer((bind,port),Handler)
-    server.db, server.cli, server.model, server.flite = db, cli, model, flite
-    return server
+    app.mount("/", StaticFiles(directory=STATIC, html=True), name="browser")
+    return app
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port",type=int,default=8765)
-    parser.add_argument("--bind",default="127.0.0.1")
-    parser.add_argument("--db",default="disputes.sqlite")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--bind", default="127.0.0.1")
+    parser.add_argument("--db", default="disputes.sqlite")
     args = parser.parse_args()
-    with make_server(args.port,args.db,os.environ.get("WHISPER_CLI","whisper-cli"),
-                     os.environ.get("WHISPER_MODEL","ggml-tiny.en.bin"),os.environ.get("FLITE","flite"), args.bind) as service:
-        print(f"Dispute Desk at http://127.0.0.1:{service.server_port}",flush=True)
-        service.serve_forever()
+    app = create_app(args.db, Path(os.getenv("MODEL_DIR", "models")), int(os.getenv("AGENT_SPEAKER", "5")))
+    uvicorn.run(app, host=args.bind, port=args.port)

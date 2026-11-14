@@ -61,7 +61,7 @@ record.onclick=async()=>{
   try {
     if (capture) {
       clearTimeout(timer); const {stream,context,node,chunks}=capture; capture=null;
-      node.disconnect();stream.getTracks().forEach(t=>t.stop());
+      node.port.close();node.disconnect();stream.getTracks().forEach(t=>t.stop());
       const audio=wav(chunks,context.sampleRate);await context.close();
       pending={id:crypto.randomUUID(),audio}; record.textContent='Record reply'; await upload();
     } else {
@@ -69,8 +69,10 @@ record.onclick=async()=>{
       const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true}});
       try {
         const context=new AudioContext();await context.resume();
-        const source=context.createMediaStreamSource(stream),node=context.createScriptProcessor(4096,1,1),chunks=[];
-        node.onaudioprocess=e=>chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+        await context.audioWorklet.addModule('/capture.js');
+        const source=context.createMediaStreamSource(stream);
+        const node=new AudioWorkletNode(context,'microphone-frames'), chunks=[];
+        node.port.onmessage=event=>chunks.push(event.data);
         source.connect(node);node.connect(context.destination);capture={stream,context,node,chunks};
         byId('status').textContent='Listening. Stop when you finish speaking.';record.textContent='Stop and send';
         timer=setTimeout(()=>record.click(),29500);
