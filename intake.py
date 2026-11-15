@@ -10,6 +10,7 @@ TRANSACTIONS = [
     {"id":"T101","merchant":"Harbor Books","cents":2450,"date":"2026-05-12","aliases":["harbor","harbour"]},
     {"id":"T102","merchant":"Maple Market","cents":4200,"date":"2026-05-14","aliases":["maple"]},
     {"id":"T103","merchant":"North Star Coffee","cents":675,"date":"2026-05-15","aliases":["north star","northstar"]},
+    {"id":"T104","merchant":"Harbor Books","cents":1800,"date":"2026-05-16","aliases":["harbor","harbour"]},
 ]
 REASONS = {
     "duplicate charge": ("charged twice","duplicate","charged two times","billed twice"),
@@ -63,22 +64,58 @@ def readback(state, item):
             f"The reason is {state['reason']}. Say confirm, change the payment, or change the reason.")
 
 
+def select_payment(state, item):
+    state["transaction"] = item["id"]
+    if state["reason"]:
+        return readback(state, item)
+    state["stage"] = "reason"
+    return f"I found a charge for {describe_payment(item)}. What happened?"
+
+
+def offer_choices(items):
+    options = " ".join(f"Option {i}. {describe_payment(item)}." for i, item in enumerate(items, 1))
+    return f"I found several charges. {options} Please say the option number, or say change the merchant."
+
+
+def parse_choice(words, count):
+    labels = (("one", "first"), ("two", "second"), ("three", "third"))
+    for index in range(count):
+        numbers = [str(index + 1)]
+        if index < len(labels):
+            numbers.extend(labels[index])
+        for number in numbers:
+            if words in (number, f"option {number}", f"number {number}", f"the {number} one",
+                         f"the {number} charge", f"the {number} option"):
+                return index
+    return None
+
+
 def transition(state, text):
     words = re.sub(r"[^a-z0-9' ]+", " ", text.lower().replace("’","'"))
     words = " ".join(words.split())
     if words in ("cancel", "cancel the dispute", "stop"):
         state["stage"] = "cancelled"
         return "Intake cancelled. No case was opened."
+    if state["stage"] == "choose_payment":
+        if words in ("start over", "change the merchant", "change the payment"):
+            state.update(stage="payment", transaction=None)
+            state.pop("choices")
+            return "Which merchant should I look up?"
+        by_id = {item["id"]: item for item in TRANSACTIONS}
+        choices = [by_id[key] for key in state["choices"]]
+        choice = parse_choice(words, len(choices))
+        if choice is None:
+            return offer_choices(choices)
+        state.pop("choices")
+        return select_payment(state, choices[choice])
     if state["stage"] == "payment":
         matches = [t for t in TRANSACTIONS if any(re.search(r"\b"+a+r"\b", words) for a in t["aliases"])]
-        if len(matches) != 1:
+        if len({item["merchant"] for item in matches}) != 1:
             return "Please choose one merchant: Harbor Books, Maple Market, or North Star Coffee."
-        item = matches[0]
-        state["transaction"] = item["id"]
-        if state["reason"]:
-            return readback(state, item)
-        state["stage"] = "reason"
-        return f"I found a charge for {describe_payment(item)}. What happened?"
+        if len(matches) > 1:
+            state.update(stage="choose_payment", choices=[item["id"] for item in matches])
+            return offer_choices(matches)
+        return select_payment(state, matches[0])
     item = next(t for t in TRANSACTIONS if t["id"] == state["transaction"])
     if state["stage"] == "reason":
         matches = [label for label, phrases in REASONS.items() if any(p in words for p in phrases)]

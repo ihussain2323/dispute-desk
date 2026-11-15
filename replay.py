@@ -31,12 +31,18 @@ def join_audio(clips, path):
             out.writeframes(bytes(9600))
 
 
-def run(base, output, correct_reason=False):
+def run(base, output, correct_reason=False, choose_payment=False):
     call = json.loads(request(base+"/calls", b""))
     def prompt(state):
         return request(f"{base}/calls/{state['call_id']}/speech/{state['seq']}")
     clips = [prompt(call)]
-    turns = [("turn-1", "reason"), ("turn-2", "confirm")]
+    if choose_payment:
+        turns = [("harbor-books", "choose_payment"), ("option-two", "reason")]
+        transaction, cents = "T104", 1800
+    else:
+        turns = [("turn-1", "reason")]
+        transaction, cents = "T103", 675
+    turns.append(("turn-2", "confirm"))
     expected_reason = "duplicate charge"
     if correct_reason:
         turns.extend([("change-reason", "reason"), ("never-arrived", "confirm")])
@@ -54,7 +60,7 @@ def run(base, output, correct_reason=False):
         raise RuntimeError("Confirmation retry did not return the original case")
     case = json.loads(request(f"{base}/cases/{call['case_id']}"))
     if (case["reason"],case["transaction"]["id"],case["transaction"]["cents"],len(case["transcript"])) != (
-            expected_reason,"T103",675,len(turns)):
+            expected_reason,transaction,cents,len(turns)):
         raise RuntimeError("Case does not match spoken dispute")
     output.mkdir(parents=True, exist_ok=True)
     (output/"case.json").write_text(json.dumps(case,indent=2)+"\n")
@@ -67,6 +73,7 @@ if __name__ == "__main__":
     parser.add_argument("--url",default="http://127.0.0.1:8765")
     parser.add_argument("--out",type=Path,default=ROOT/"run")
     parser.add_argument("--correct-reason", action="store_true", help="Change the reason during readback")
+    parser.add_argument("--choose-payment", action="store_true", help="Select the second Harbor Books charge")
     args=parser.parse_args()
-    result=run(args.url.rstrip("/"),args.out,args.correct_reason)
+    result=run(args.url.rstrip("/"),args.out,args.correct_reason,args.choose_payment)
     print(f"{result['case_id']} · {result['reason']} · {result['status']}")

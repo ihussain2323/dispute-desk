@@ -15,6 +15,7 @@ jobs:
         run: |
           curl -fsS --retry 10 --retry-delay 1 --retry-all-errors http://127.0.0.1:8765/ > /dev/null
           python3 replay.py --out run
+          python3 replay.py --choose-payment --out run/selection
           python3 replay.py --correct-reason --out run/correction
       - name: Show agent diagnostics on failure
         if: failure()

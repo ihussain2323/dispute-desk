@@ -20,7 +20,8 @@ class IntakeTest(unittest.TestCase):
 
     def test_correction_and_explicit_confirmation(self):
         self.assertEqual(self.turn('Harbor Books or Maple Market'), 'payment')
-        self.assertEqual(self.turn('Harbor Books'),'reason')
+        self.assertEqual(self.turn('Harbor Books'),'choose_payment')
+        self.assertEqual(self.turn('option one'),'reason')
         self.assertEqual(self.turn('never arrived'),'confirm')
         self.assertEqual(self.turn('I do not confirm'),'confirm')
         self.assertEqual(self.turn('start over'),'payment')
@@ -47,6 +48,21 @@ class IntakeTest(unittest.TestCase):
         record = case(self.db, self.call["case_id"])
         self.assertEqual(record["transaction"]["id"], "T102")
         self.assertEqual(record["reason"], "goods not received")
+
+    def test_choose_charge_during_payment_correction(self):
+        self.turn("Maple Market")
+        self.turn("duplicate charge")
+        self.turn("change the payment")
+        self.assertEqual(self.turn("Harbor Books"), "choose_payment")
+        for unclear in ("confirm", "first or second", "not option two", "option nine"):
+            self.assertEqual(self.turn(unclear), "choose_payment")
+            self.assertIsNone(self.call["transaction"])
+            self.assertIsNone(self.call["case_id"])
+        self.assertEqual(self.turn("the second one"), "confirm")
+        self.assertIn("18 dollars", self.call["prompt"])
+        self.turn("confirm")
+        record = case(self.db, self.call["case_id"])
+        self.assertEqual((record["transaction"]["id"], record["reason"]), ("T104", "duplicate charge"))
 
     def test_cancel(self):
         self.turn('Maple Market')
