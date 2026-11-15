@@ -119,7 +119,10 @@ def transition(state, text):
     item = next(t for t in TRANSACTIONS if t["id"] == state["transaction"])
     if state["stage"] == "reason":
         matches = [label for label, phrases in REASONS.items() if any(p in words for p in phrases)]
-        if len(matches) != 1 or words.startswith(("not a duplicate","i was not charged","i wasn't charged")):
+        denies_duplicate = re.search(
+            r"\b(?:not|never|wasn't|isn't|weren't) (?:a |an |being )?(?:duplicate|charged|billed)\b", words
+        )
+        if len(matches) != 1 or denies_duplicate:
             return "Please describe one issue: a duplicate charge, an unrecognized charge, or goods that never arrived."
         state["reason"] = matches[0]
         return readback(state, item)

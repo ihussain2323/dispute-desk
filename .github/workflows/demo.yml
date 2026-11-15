@@ -17,6 +17,8 @@ jobs:
           python3 replay.py --out run
           python3 replay.py --choose-payment --out run/selection
           python3 replay.py --correct-reason --out run/correction
+      - name: Verify ambiguous and cancelled voice intake
+        run: docker exec agent python negative_eval.py --db /data/disputes.sqlite > run/negative-evaluation.json
       - name: Show agent diagnostics on failure
         if: failure()
         run: docker logs agent || true

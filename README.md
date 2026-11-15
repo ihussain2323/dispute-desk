@@ -47,3 +47,13 @@ python3 -m unittest discover -s tests -v
 The replay sends three neural caller recordings to the same API as the browser, retrieves the synthesized replies, verifies the persisted case and retries the confirmation. It saves the actual audio and case to `run/`. The workflow repeats this test against a fresh container on GitHub.
 
 For native execution, use Python 3.13, install `requirements.txt` into a virtual environment, run `sh fetch-models.sh`, then `python server.py`. Set `MODEL_DIR` if the extracted models are stored elsewhere.
+
+## Check ambiguous and cancelled calls
+
+With the Docker service running under the name `agent` (add `--name agent` to the run command), run:
+
+```sh
+docker exec agent python negative_eval.py --db /data/disputes.sqlite
+```
+
+The evaluation sends synthetic caller audio through the live turn endpoint. The caller gives an ambiguous payment choice, denies a duplicate charge, then declines confirmation and cancels. The report records the actual transcripts and replies. It checks that a later spoken confirmation receives HTTP 409 and queries the same SQLite database to verify that the cancelled call created zero cases. CI saves the report alongside the successful call replays.
