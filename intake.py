@@ -57,6 +57,12 @@ def describe_payment(item):
     return f"{amount} at {item['merchant']} on {day:%B} {day.day}, {day.year}"
 
 
+def readback(state, item):
+    state["stage"] = "confirm"
+    return (f"Let me read that back. You're disputing {describe_payment(item)}. "
+            f"The reason is {state['reason']}. Say confirm, change the payment, or change the reason.")
+
+
 def transition(state, text):
     words = re.sub(r"[^a-z0-9' ]+", " ", text.lower().replace("’","'"))
     words = " ".join(words.split())
@@ -68,17 +74,25 @@ def transition(state, text):
         if len(matches) != 1:
             return "Please choose one merchant: Harbor Books, Maple Market, or North Star Coffee."
         item = matches[0]
-        state.update(stage="reason",transaction=item["id"])
+        state["transaction"] = item["id"]
+        if state["reason"]:
+            return readback(state, item)
+        state["stage"] = "reason"
         return f"I found a charge for {describe_payment(item)}. What happened?"
     item = next(t for t in TRANSACTIONS if t["id"] == state["transaction"])
     if state["stage"] == "reason":
         matches = [label for label, phrases in REASONS.items() if any(p in words for p in phrases)]
         if len(matches) != 1 or words.startswith(("not a duplicate","i was not charged","i wasn't charged")):
             return "Please describe one issue: a duplicate charge, an unrecognized charge, or goods that never arrived."
-        state.update(stage="confirm", reason=matches[0])
-        return (f"Let me read that back. You're disputing {describe_payment(item)}. "
-                f"The reason is {matches[0]}. Say confirm to open the case, or start over to change it.")
-    if words in ("start over","no","no start over","change the payment","change the reason"):
+        state["reason"] = matches[0]
+        return readback(state, item)
+    if words in ("change the payment", "change the merchant"):
+        state.update(stage="payment", transaction=None)
+        return "Which merchant should I use instead?"
+    if words == "change the reason":
+        state.update(stage="reason", reason=None)
+        return "What happened with this payment?"
+    if words in ("start over","no","no start over"):
         state.update(stage="payment",transaction=None,reason=None)
         return "Let's correct the details. Which merchant was the payment with?"
     if words in ("confirm","yes confirm","i confirm","confirm the dispute","yes please open the case"):

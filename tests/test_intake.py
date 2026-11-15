@@ -31,6 +31,23 @@ class IntakeTest(unittest.TestCase):
         self.turn('confirm')
         self.assertEqual(case(self.db,self.call['case_id'])['transaction']['id'],'T103')
 
+    def test_edit_one_field_at_a_time(self):
+        self.turn("North Star Coffee")
+        self.turn("duplicate charge")
+        self.assertEqual(self.turn("change the payment"), "payment")
+        self.assertEqual(self.turn("confirm"), "payment")
+        self.assertEqual(self.turn("Maple Market"), "confirm")
+        self.assertIn("duplicate charge", self.call["prompt"])
+        self.assertEqual(self.turn("change the reason"), "reason")
+        self.assertEqual(self.turn("confirm"), "reason")
+        self.assertEqual(self.turn("never arrived"), "confirm")
+        self.assertIn("Maple Market", self.call["prompt"])
+        self.assertIsNone(self.call["case_id"])
+        self.turn("confirm")
+        record = case(self.db, self.call["case_id"])
+        self.assertEqual(record["transaction"]["id"], "T102")
+        self.assertEqual(record["reason"], "goods not received")
+
     def test_cancel(self):
         self.turn('Maple Market')
         self.turn('not a duplicate charge')
