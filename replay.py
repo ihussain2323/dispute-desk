@@ -1,5 +1,6 @@
 """Replay a synthetic spoken call through the same HTTP endpoints as the browser."""
 import argparse
+from html import escape
 import io
 import json
 from pathlib import Path
@@ -62,6 +63,10 @@ def run(base, output, correct_reason=False, choose_payment=False):
     if (case["reason"],case["transaction"]["id"],case["transaction"]["cents"],len(case["transcript"])) != (
             expected_reason,transaction,cents,len(turns)):
         raise RuntimeError("Case does not match spoken dispute")
+    review = request(f"{base}/cases/{case['case_id']}/review").decode()
+    for value in (case["case_id"], case["reason"], case["transaction"]["id"], case["transcript"][-1]["caller"]):
+        if escape(value) not in review:
+            raise RuntimeError(f"Case review is missing {value!r}")
     output.mkdir(parents=True, exist_ok=True)
     (output/"case.json").write_text(json.dumps(case,indent=2)+"\n")
     join_audio(clips,output/"call.wav")

@@ -15,7 +15,7 @@ docker build -t dispute-desk .
 docker run --rm -p 127.0.0.1:8765:8765 -v dispute-cases:/data dispute-desk
 ```
 
-Open [localhost:8765](http://localhost:8765). Start a call, allow microphone access, and use **Record reply** and **Stop and send** for each turn. Try “The charge at North Star Coffee,” then “There is a duplicate charge on my statement.” At readback, say “change the payment” to choose another merchant or “change the reason” to explain the issue again. The agent keeps the other detail, reads the updated dispute back, and waits for “confirm.” You can also say “start over” or “cancel.” Select **Open case record** to inspect the result.
+Open [localhost:8765](http://localhost:8765). Start a call, allow microphone access, and use **Record reply** and **Stop and send** for each turn. Try “The charge at North Star Coffee,” then “There is a duplicate charge on my statement.” At readback, say “change the payment” to choose another merchant or “change the reason” to explain the issue again. The agent keeps the other detail, reads the updated dispute back, and waits for “confirm.” You can also say “start over” or “cancel.” Select **Open case record** to review the confirmed payment, reason, and full conversation side by side. The page reads the saved case, including any corrected details. **View case JSON** opens the underlying record.
 
 For a merchant with multiple charges, try “Harbor Books.” The agent reads each amount and date. Say “option two” for the $18 charge on May 16, or “change the merchant” to look up a different payment.
 

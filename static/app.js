@@ -20,7 +20,7 @@ async function show(next) {
   try { await player.play(); } catch { byId('status').textContent = 'Use the audio player to hear the prompt.'; }
   const closed = ['opened','cancelled'].includes(call.stage);
   record.hidden = closed; record.disabled = false; start.hidden = !closed;
-  if (call.case_id) { const link = byId('case'); link.hidden = false; link.href = '/cases/'+call.case_id; }
+  if (call.case_id) { const link = byId('case'); link.hidden = false; link.href = '/cases/'+call.case_id+'/review'; }
 }
 start.onclick = async () => {
   start.disabled = true;

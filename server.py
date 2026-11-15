@@ -8,12 +8,13 @@ from urllib.parse import urlsplit
 import wave
 
 from fastapi import FastAPI, Header, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 import uvicorn
 
 from audio import SpeechEngine
+from review import render_case
 from intake import OPENING, Conflict, advance, case, connection, initialize, start
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -49,6 +50,10 @@ def create_app(db, models, voice):
     @app.post("/calls", status_code=201)
     def begin():
         return start(db)
+
+    @app.get("/cases/{case_id}/review", response_class=HTMLResponse)
+    def review_case(case_id: str):
+        return render_case(case(db, case_id))
 
     @app.get("/cases/{case_id}")
     def read_case(case_id: str):
